@@ -1,9 +1,9 @@
-
 import React, { useState } from 'react';
 import { ViewType } from './types';
 import Dashboard from './components/Dashboard';
 import Simulator from './components/Simulator';
 import CompetitorAnalysis from './components/CompetitorAnalysis';
+import InstitutionAnalysis from './components/InstitutionAnalysis';
 import FailureAnalysis from './components/FailureAnalysis';
 import BidSearch from './components/BidSearch';
 import Settings from './components/Settings';
@@ -17,6 +17,7 @@ const App: React.FC = () => {
       case ViewType.DASHBOARD: return <Dashboard />;
       case ViewType.SIMULATOR: return <Simulator />;
       case ViewType.COMPETITOR: return <CompetitorAnalysis />;
+      case ViewType.INSTITUTION: return <InstitutionAnalysis />;
       case ViewType.FAILURE_ANALYSIS: return <FailureAnalysis />;
       case ViewType.BID_ANALYSIS: return <BidSearch />;
       case ViewType.SETTINGS: return <Settings />;
@@ -29,6 +30,7 @@ const App: React.FC = () => {
     { id: ViewType.BID_ANALYSIS, label: '입찰 정보 검색', icon: 'search' },
     { id: ViewType.SIMULATOR, label: '투찰 시뮬레이터', icon: 'calculate' },
     { id: ViewType.COMPETITOR, label: '경쟁사 분석', icon: 'corporate_fare' },
+    { id: ViewType.INSTITUTION, label: '기관별 패턴', icon: 'apartment' },
     { id: ViewType.FAILURE_ANALYSIS, label: '실패 원인 분석', icon: 'analytics' },
     { id: ViewType.SETTINGS, label: '설정', icon: 'settings' },
   ];
