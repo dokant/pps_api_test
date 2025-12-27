@@ -30,10 +30,8 @@ class handler(BaseHTTPRequestHandler):
             cursor = conn.cursor()
             
             if bid_no:
-                # 특정 입찰건 수집
                 result = self._collect_single(cursor, conn, api_key, bid_no)
             else:
-                # 최근 낙찰건 기준 수집
                 result = self._collect_recent(cursor, conn, api_key, limit)
             
             conn.close()
@@ -46,7 +44,6 @@ class handler(BaseHTTPRequestHandler):
     def _collect_single(self, cursor, conn, api_key, bid_no):
         """특정 입찰건 참가업체 수집"""
         
-        # 해당 입찰 정보 조회
         cursor.execute("""
             SELECT bid_ntce_no, bid_ntce_ord, bid_clsfc_no, bid_ntce_nm
             FROM bid_results
@@ -58,7 +55,7 @@ class handler(BaseHTTPRequestHandler):
         if not bid:
             return {"success": False, "message": f"입찰번호 {bid_no}를 찾을 수 없습니다."}
         
-        collected = self._fetch_and_save_participants(
+        result = self._fetch_and_save_participants(
             cursor, conn, api_key,
             bid[0], bid[1] or "00", bid[2] or "00"
         )
@@ -67,13 +64,13 @@ class handler(BaseHTTPRequestHandler):
             "success": True,
             "bid_no": bid_no,
             "bid_name": bid[3],
-            "collected_count": collected
+            "collected_count": result.get("saved", 0),
+            "api_response": result.get("debug")
         }
     
     def _collect_recent(self, cursor, conn, api_key, limit):
         """최근 낙찰건 기준 참가업체 수집"""
         
-        # 아직 참가업체 정보가 없는 최근 낙찰건 조회
         cursor.execute("""
             SELECT b.bid_ntce_no, b.bid_ntce_ord, b.bid_clsfc_no, b.bid_ntce_nm
             FROM bid_results b
@@ -85,7 +82,6 @@ class handler(BaseHTTPRequestHandler):
             ORDER BY b.rgst_dt DESC
             LIMIT %s
         """, [limit])
-
         
         bids = cursor.fetchall()
         
@@ -94,15 +90,17 @@ class handler(BaseHTTPRequestHandler):
         
         for bid in bids:
             try:
-                collected = self._fetch_and_save_participants(
+                result = self._fetch_and_save_participants(
                     cursor, conn, api_key,
                     bid[0], bid[1] or "00", bid[2] or "00"
                 )
+                collected = result.get("saved", 0)
                 results.append({
                     "bid_no": bid[0],
                     "bid_name": bid[3],
                     "collected": collected,
-                    "status": "success"
+                    "status": "success" if collected > 0 else "no_data",
+                    "debug": result.get("debug")
                 })
                 total_collected += collected
             except Exception as e:
@@ -123,8 +121,8 @@ class handler(BaseHTTPRequestHandler):
     def _fetch_and_save_participants(self, cursor, conn, api_key, bid_ntce_no, bid_ntce_ord, bid_clsfc_no):
         """나라장터 API에서 참가업체 조회 후 저장"""
         
-        # API URL 구성 (개찰결과 API)
-        base_url = "http://apis.data.go.kr/1230000/BidResultInfoService/getOpengResultListInfoServc"
+        # 물품 개찰결과 API
+        base_url = "http://apis.data.go.kr/1230000/BidResultInfoService/getOpengResultListInfoServcThng"
         
         params = {
             "serviceKey": api_key,
@@ -136,16 +134,55 @@ class handler(BaseHTTPRequestHandler):
             "type": "json"
         }
         
-        url = base_url + "?" + urllib.parse.urlencode(params)
+        url = base_url + "?" + urllib.parse.urlencode(params, safe="=")
         
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=30) as response:
-            data = json.loads(response.read().decode('utf-8'))
+        debug_info = {"url": base_url, "bid_no": bid_ntce_no}
+        
+        try:
+            req = urllib.request.Request(url)
+            req.add_header("User-Agent", "Mozilla/5.0")
+            with urllib.request.urlopen(req, timeout=30) as response:
+                raw_data = response.read().decode('utf-8')
+                data = json.loads(raw_data)
+        except urllib.error.HTTPError as e:
+            # 물품 API 실패시 용역 API 시도
+            base_url = "http://apis.data.go.kr/1230000/BidResultInfoService/getOpengResultListInfoServcServc"
+            params["serviceKey"] = api_key
+            url = base_url + "?" + urllib.parse.urlencode(params, safe="=")
+            
+            try:
+                req = urllib.request.Request(url)
+                req.add_header("User-Agent", "Mozilla/5.0")
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    raw_data = response.read().decode('utf-8')
+                    data = json.loads(raw_data)
+                debug_info["url"] = base_url
+            except urllib.error.HTTPError as e2:
+                # 용역도 실패시 공사 API 시도
+                base_url = "http://apis.data.go.kr/1230000/BidResultInfoService/getOpengResultListInfoServcCnstwk"
+                url = base_url + "?" + urllib.parse.urlencode(params, safe="=")
+                
+                try:
+                    req = urllib.request.Request(url)
+                    req.add_header("User-Agent", "Mozilla/5.0")
+                    with urllib.request.urlopen(req, timeout=30) as response:
+                        raw_data = response.read().decode('utf-8')
+                        data = json.loads(raw_data)
+                    debug_info["url"] = base_url
+                except Exception as e3:
+                    debug_info["error"] = str(e3)
+                    return {"saved": 0, "debug": debug_info}
+        except Exception as e:
+            debug_info["error"] = str(e)
+            return {"saved": 0, "debug": debug_info}
         
         # 응답 파싱
         items = []
         try:
             body = data.get("response", {}).get("body", {})
+            total_count = body.get("totalCount", 0)
+            debug_info["total_count"] = total_count
+            
             item_list = body.get("items", [])
             
             if isinstance(item_list, dict):
@@ -155,16 +192,29 @@ class handler(BaseHTTPRequestHandler):
                 
             if isinstance(items, dict):
                 items = [items]
-        except:
+                
+            debug_info["items_count"] = len(items)
+        except Exception as e:
+            debug_info["parse_error"] = str(e)
             items = []
         
         if not items:
-            return 0
+            return {"saved": 0, "debug": debug_info}
         
         # DB에 저장
         saved_count = 0
         for idx, item in enumerate(items):
             try:
+                prtcpt_bizno = (
+                    item.get("prtcptBizno") or 
+                    item.get("bidprcCorpBizno") or 
+                    item.get("bizno") or
+                    item.get("corpBizno")
+                )
+                
+                if not prtcpt_bizno:
+                    continue
+                
                 cursor.execute("""
                     INSERT INTO bid_participants (
                         bid_ntce_no, bid_ntce_ord, bid_clsfc_no,
@@ -176,21 +226,22 @@ class handler(BaseHTTPRequestHandler):
                     bid_ntce_no,
                     bid_ntce_ord,
                     bid_clsfc_no,
-                    item.get("prtcptNm") or item.get("bidprcCorpNm"),
-                    item.get("prtcptBizno") or item.get("bidprcCorpBizno") or item.get("bizno"),
-                    item.get("prtcptCeoNm") or item.get("bidprcCorpCeoNm"),
+                    item.get("prtcptNm") or item.get("bidprcCorpNm") or item.get("corpNm"),
+                    prtcpt_bizno,
+                    item.get("prtcptCeoNm") or item.get("bidprcCorpCeoNm") or item.get("corpCeoNm"),
                     self._parse_int(item.get("bidprcAmt") or item.get("bidAmt")),
-                    self._parse_float(item.get("bidprcrt") or item.get("drwtRate")),
-                    idx + 1,
-                    item.get("rlOpengRank") == "1" or idx == 0,
+                    self._parse_float(item.get("bidprcrt") or item.get("drwtRate") or item.get("bidprcRt")),
+                    self._parse_int(item.get("prcbdrRnk") or item.get("rnk")) or (idx + 1),
+                    str(item.get("prcbdrRnk") or item.get("rnk") or "") == "1",
                     item.get("opengDt")
                 ])
                 saved_count += 1
             except Exception as e:
+                debug_info["save_error"] = str(e)
                 continue
         
         conn.commit()
-        return saved_count
+        return {"saved": saved_count, "debug": debug_info}
     
     def _parse_int(self, val):
         if val is None:
