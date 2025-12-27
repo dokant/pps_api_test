@@ -10,6 +10,7 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         """
         입찰참가업체 정보 수집 API
+        - getOpengResultListInfoOpengCompt: 개찰결과 개찰완료 목록 조회
         """
         try:
             query = parse_qs(urlparse(self.path).query)
@@ -53,7 +54,7 @@ class handler(BaseHTTPRequestHandler):
         
         result = self._fetch_and_save_participants(
             cursor, conn, api_key,
-            bid[0], bid[1] or "00", bid[2] or "00", bid[4]
+            bid[0], bid[1] or "00", bid[2] or "00"
         )
         
         return {
@@ -62,7 +63,7 @@ class handler(BaseHTTPRequestHandler):
             "bid_name": bid[3],
             "bid_type": bid[4],
             "collected_count": result.get("saved", 0),
-            "api_response": result.get("debug")
+            "debug": result.get("debug")
         }
     
     def _collect_recent(self, cursor, conn, api_key, limit):
@@ -89,7 +90,7 @@ class handler(BaseHTTPRequestHandler):
             try:
                 result = self._fetch_and_save_participants(
                     cursor, conn, api_key,
-                    bid[0], bid[1] or "00", bid[2] or "00", bid[4]
+                    bid[0], bid[1] or "00", bid[2] or "00"
                 )
                 collected = result.get("saved", 0)
                 results.append({
@@ -116,66 +117,59 @@ class handler(BaseHTTPRequestHandler):
             "results": results
         }
     
-    def _fetch_and_save_participants(self, cursor, conn, api_key, bid_ntce_no, bid_ntce_ord, bid_clsfc_no, bid_type):
-        """나라장터 API에서 참가업체 조회 후 저장"""
+    def _fetch_and_save_participants(self, cursor, conn, api_key, bid_ntce_no, bid_ntce_ord, bid_clsfc_no):
+        """
+        나라장터 API에서 참가업체 조회 후 저장
+        - getOpengResultListInfoOpengCompt: 개찰결과 개찰완료 목록 조회
+        """
         
-        # bid_type에 따라 API 선택
-        if bid_type == "goods":
-            api_endpoints = [
-                "http://apis.data.go.kr/1230000/BidResultInfoService/getOpengResultListInfoServcThng",
-            ]
-        elif bid_type == "service":
-            api_endpoints = [
-                "http://apis.data.go.kr/1230000/BidResultInfoService/getOpengResultListInfoServcServc",
-            ]
-        elif bid_type == "construction":
-            api_endpoints = [
-                "http://apis.data.go.kr/1230000/BidResultInfoService/getOpengResultListInfoServcCnstwk",
-            ]
-        else:
-            api_endpoints = [
-                "http://apis.data.go.kr/1230000/BidResultInfoService/getOpengResultListInfoServcThng",
-                "http://apis.data.go.kr/1230000/BidResultInfoService/getOpengResultListInfoServcServc",
-                "http://apis.data.go.kr/1230000/BidResultInfoService/getOpengResultListInfoServcCnstwk",
-            ]
+        # 개찰결과 개찰완료 목록 조회 API (정확한 엔드포인트)
+        base_url = "http://apis.data.go.kr/1230000/ScsbidInfoService/getOpengResultListInfoOpengCompt"
         
-        other_params = urllib.parse.urlencode({
+        params = {
             "numOfRows": "100",
             "pageNo": "1",
-            "inqryDiv": "1",
             "bidNtceNo": bid_ntce_no,
             "bidNtceOrd": bid_ntce_ord,
             "type": "json"
-        })
+        }
         
-        debug_info = {"bid_no": bid_ntce_no, "bid_type": bid_type}
-        data = None
+        other_params = urllib.parse.urlencode(params)
+        url = f"{base_url}?serviceKey={api_key}&{other_params}"
         
-        for base_url in api_endpoints:
-            url = f"{base_url}?serviceKey={api_key}&{other_params}"
-            debug_info["url"] = base_url
-            
+        debug_info = {
+            "bid_no": bid_ntce_no,
+            "bid_ntce_ord": bid_ntce_ord,
+            "api": "getOpengResultListInfoOpengCompt"
+        }
+        
+        try:
+            req = urllib.request.Request(url)
+            req.add_header("User-Agent", "Mozilla/5.0")
+            with urllib.request.urlopen(req, timeout=30) as response:
+                raw_data = response.read().decode('utf-8')
+                data = json.loads(raw_data)
+        except urllib.error.HTTPError as e:
+            error_body = ""
             try:
-                req = urllib.request.Request(url)
-                req.add_header("User-Agent", "Mozilla/5.0")
-                with urllib.request.urlopen(req, timeout=30) as response:
-                    raw_data = response.read().decode('utf-8')
-                    data = json.loads(raw_data)
-                    
-                    # 정상 응답 확인
-                    if data.get("response", {}).get("body", {}).get("totalCount", 0) > 0:
-                        break
-            except Exception as e:
-                debug_info["error"] = str(e)
-                continue
-        
-        if not data:
+                error_body = e.read().decode('utf-8')[:300]
+            except:
+                pass
+            debug_info["error"] = f"HTTP {e.code}: {error_body}"
+            return {"saved": 0, "debug": debug_info}
+        except Exception as e:
+            debug_info["error"] = str(e)
             return {"saved": 0, "debug": debug_info}
         
         # 응답 파싱
         items = []
         try:
-            body = data.get("response", {}).get("body", {})
+            response_data = data.get("response", {})
+            header = response_data.get("header", {})
+            debug_info["result_code"] = header.get("resultCode")
+            debug_info["result_msg"] = header.get("resultMsg")
+            
+            body = response_data.get("body", {})
             total_count = body.get("totalCount", 0)
             debug_info["total_count"] = total_count
             
@@ -190,6 +184,11 @@ class handler(BaseHTTPRequestHandler):
                 items = [items]
                 
             debug_info["items_count"] = len(items)
+            
+            # 첫 번째 아이템 구조 확인용
+            if items:
+                debug_info["sample_keys"] = list(items[0].keys())
+                
         except Exception as e:
             debug_info["parse_error"] = str(e)
             items = []
@@ -201,16 +200,18 @@ class handler(BaseHTTPRequestHandler):
         saved_count = 0
         for idx, item in enumerate(items):
             try:
+                # 사업자번호 추출
                 prtcpt_bizno = (
-                    item.get("prtcptBizno") or 
-                    item.get("bidprcCorpBizno") or 
-                    item.get("bizno") or
-                    item.get("corpBizno") or
-                    item.get("prtcptCorpBizno")
+                    item.get("sucsfbidBznsrgnNo") or
+                    item.get("bznsrgnNo") or
+                    item.get("prtcptBznsrgnNo")
                 )
                 
                 if not prtcpt_bizno:
                     continue
+                
+                # 순위 추출
+                rank = self._parse_int(item.get("opengRnk") or item.get("rnk")) or (idx + 1)
                 
                 cursor.execute("""
                     INSERT INTO bid_participants (
@@ -222,19 +223,21 @@ class handler(BaseHTTPRequestHandler):
                 """, [
                     bid_ntce_no,
                     bid_ntce_ord,
-                    bid_clsfc_no,
-                    item.get("prtcptNm") or item.get("bidprcCorpNm") or item.get("corpNm") or item.get("prtcptCorpNm"),
+                    item.get("bidClsfcNo") or bid_clsfc_no,
+                    item.get("sucsfbidCorpNm") or item.get("corpNm"),
                     prtcpt_bizno,
-                    item.get("prtcptCeoNm") or item.get("bidprcCorpCeoNm") or item.get("corpCeoNm") or item.get("prtcptCorpCeoNm"),
-                    self._parse_int(item.get("bidprcAmt") or item.get("bidAmt")),
-                    self._parse_float(item.get("bidprcrt") or item.get("drwtRate") or item.get("bidprcRt")),
-                    self._parse_int(item.get("prcbdrRnk") or item.get("rnk")) or (idx + 1),
-                    str(item.get("prcbdrRnk") or item.get("rnk") or "") == "1",
+                    item.get("sucsfbidCorpCeoNm") or item.get("ceoNm"),
+                    self._parse_int(item.get("bidprcAmt")),
+                    self._parse_float(item.get("bidprcRt")),
+                    rank,
+                    rank == 1,
                     item.get("opengDt")
                 ])
                 saved_count += 1
             except Exception as e:
-                debug_info["save_error"] = str(e)
+                if "save_errors" not in debug_info:
+                    debug_info["save_errors"] = []
+                debug_info["save_errors"].append(str(e)[:100])
                 continue
         
         conn.commit()
