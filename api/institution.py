@@ -39,7 +39,7 @@ class handler(BaseHTTPRequestHandler):
     def _get_institution_list(self, cursor, limit):
         """상위 발주기관 목록"""
         
-        query = """
+          query = """
             SELECT 
                 dminstt_nm,
                 COUNT(*) as bid_count,
@@ -54,10 +54,14 @@ class handler(BaseHTTPRequestHandler):
             WHERE dminstt_nm IS NOT NULL 
                 AND sucsf_bid_amt > 0
                 AND sucsf_bid_rate IS NOT NULL
+                AND dminstt_nm NOT LIKE '%수요기관%'
+                AND dminstt_nm NOT LIKE '%각 %'
+                AND LENGTH(dminstt_nm) > 2
             GROUP BY dminstt_nm
             ORDER BY bid_count DESC
             LIMIT %s
         """
+
         
         cursor.execute(query, [limit])
         rows = cursor.fetchall()
