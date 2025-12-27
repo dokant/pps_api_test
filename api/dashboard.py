@@ -111,11 +111,16 @@ class handler(BaseHTTPRequestHandler):
                 COUNT(*) as count,
                 SUM(sucsf_bid_amt) as amount
             FROM bid_results
-            WHERE dminstt_nm IS NOT NULL AND sucsf_bid_amt > 0
+            WHERE dminstt_nm IS NOT NULL 
+                AND sucsf_bid_amt > 0
+                AND dminstt_nm NOT LIKE '%수요기관%'
+                AND dminstt_nm NOT LIKE '%각 %'
+                AND LENGTH(dminstt_nm) > 2
             GROUP BY dminstt_nm
             ORDER BY count DESC
             LIMIT 5
         """)
+
         top_institutions = []
         for row in cursor.fetchall():
             top_institutions.append({
