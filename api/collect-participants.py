@@ -75,15 +75,17 @@ class handler(BaseHTTPRequestHandler):
         
         # 아직 참가업체 정보가 없는 최근 낙찰건 조회
         cursor.execute("""
-            SELECT DISTINCT b.bid_ntce_no, b.bid_ntce_ord, b.bid_clsfc_no, b.bid_ntce_nm
+            SELECT b.bid_ntce_no, b.bid_ntce_ord, b.bid_clsfc_no, b.bid_ntce_nm
             FROM bid_results b
             LEFT JOIN bid_participants p ON b.bid_ntce_no = p.bid_ntce_no
             WHERE p.id IS NULL
                 AND b.prtcpt_cnum > 1
                 AND b.prtcpt_cnum <= 100
+            GROUP BY b.bid_ntce_no, b.bid_ntce_ord, b.bid_clsfc_no, b.bid_ntce_nm, b.rgst_dt
             ORDER BY b.rgst_dt DESC
             LIMIT %s
         """, [limit])
+
         
         bids = cursor.fetchall()
         
