@@ -6,7 +6,7 @@ import urllib.parse
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        """나라장터 API 키 테스트"""
+        """나라장터 API 키 테스트 - 여러 API 시도"""
         try:
             api_key = os.getenv("G2B_API_KEY")
             
@@ -17,70 +17,86 @@ class handler(BaseHTTPRequestHandler):
                 })
                 return
             
-            # API 키 일부만 표시 (보안)
             masked_key = api_key[:10] + "..." + api_key[-5:] if len(api_key) > 15 else "***"
             
-            # 간단한 API 테스트 - 낙찰결과 조회 (최근 1건)
-            base_url = "http://apis.data.go.kr/1230000/BidResultInfoService/getScsbidListSttusThng"
-            
-            params = {
-                "numOfRows": "1",
-                "pageNo": "1",
-                "inqryDiv": "1",
-                "type": "json"
-            }
-            
-            other_params = urllib.parse.urlencode(params)
-            url = f"{base_url}?serviceKey={api_key}&{other_params}"
-            
-            test_result = {}
-            
-            try:
-                req = urllib.request.Request(url)
-                req.add_header("User-Agent", "Mozilla/5.0")
-                with urllib.request.urlopen(req, timeout=30) as response:
-                    raw_data = response.read().decode('utf-8')
-                    data = json.loads(raw_data)
-                    
-                    # 응답 구조 확인
-                    if "response" in data:
-                        header = data["response"].get("header", {})
-                        result_code = header.get("resultCode")
-                        result_msg = header.get("resultMsg")
-                        
-                        body = data["response"].get("body", {})
-                        total_count = body.get("totalCount", 0)
-                        
-                        test_result = {
-                            "api_call": "success",
-                            "result_code": result_code,
-                            "result_msg": result_msg,
-                            "total_count": total_count
-                        }
-                    else:
-                        test_result = {
-                            "api_call": "unexpected_response",
-                            "raw_response": str(data)[:500]
-                        }
-                        
-            except urllib.error.HTTPError as e:
-                test_result = {
-                    "api_call": "http_error",
-                    "error_code": e.code,
-                    "error_reason": e.reason,
-                    "error_body": e.read().decode('utf-8')[:500] if e.fp else None
+            # 여러 API 테스트
+            test_apis = [
+                {
+                    "name": "입찰공고목록 (물품)",
+                    "url": "http://apis.data.go.kr/1230000/BidPublicInfoService03/getBidPblancListInfoThng"
+                },
+                {
+                    "name": "낙찰결과 (물품)",
+                    "url": "http://apis.data.go.kr/1230000/ScsbidInfoService/getScsbidListSttusThng"
+                },
+                {
+                    "name": "개찰결과 (물품)",
+                    "url": "http://apis.data.go.kr/1230000/BidResultInfoService/getOpengResultListInfoServcThng"
                 }
-            except Exception as e:
-                test_result = {
-                    "api_call": "error",
-                    "error": str(e)
+            ]
+            
+            results = []
+            
+            for api in test_apis:
+                params = {
+                    "numOfRows": "1",
+                    "pageNo": "1",
+                    "inqryDiv": "1",
+                    "type": "json"
                 }
+                
+                other_params = urllib.parse.urlencode(params)
+                url = f"{api['url']}?serviceKey={api_key}&{other_params}"
+                
+                try:
+                    req = urllib.request.Request(url)
+                    req.add_header("User-Agent", "Mozilla/5.0")
+                    with urllib.request.urlopen(req, timeout=30) as response:
+                        raw_data = response.read().decode('utf-8')
+                        data = json.loads(raw_data)
+                        
+                        if "response" in data:
+                            header = data["response"].get("header", {})
+                            body = data["response"].get("body", {})
+                            
+                            results.append({
+                                "api_name": api["name"],
+                                "status": "success",
+                                "result_code": header.get("resultCode"),
+                                "result_msg": header.get("resultMsg"),
+                                "total_count": body.get("totalCount", 0)
+                            })
+                        else:
+                            results.append({
+                                "api_name": api["name"],
+                                "status": "unexpected",
+                                "raw": str(data)[:200]
+                            })
+                            
+                except urllib.error.HTTPError as e:
+                    error_body = ""
+                    try:
+                        error_body = e.read().decode('utf-8')[:200]
+                    except:
+                        pass
+                    results.append({
+                        "api_name": api["name"],
+                        "status": "http_error",
+                        "error_code": e.code,
+                        "error_body": error_body
+                    })
+                except Exception as e:
+                    results.append({
+                        "api_name": api["name"],
+                        "status": "error",
+                        "error": str(e)
+                    })
             
             self._send_response(200, {
                 "success": True,
                 "api_key_masked": masked_key,
                 "api_key_length": len(api_key),
-                "test_result": test_result
+                "test_results": results
             })
             
         except Exception as e:
