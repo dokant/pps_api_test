@@ -124,8 +124,8 @@ class handler(BaseHTTPRequestHandler):
         """
         
         # 개찰결과 개찰완료 목록 조회 API (정확한 엔드포인트)
-        base_url = "http://apis.data.go.kr/1230000/ScsbidInfoService/getOpengResultListInfoOpengCompt"
-        
+        base_url = "https://apis.data.go.kr/1230000/as/ScsbidInfoService/getOpengResultListInfoOpengCompt"
+
         params = {
             "numOfRows": "100",
             "pageNo": "1",
