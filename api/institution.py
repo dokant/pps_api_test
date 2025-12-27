@@ -23,10 +23,8 @@ class handler(BaseHTTPRequestHandler):
             cursor = conn.cursor()
             
             if name:
-                # 특정 기관 상세 분석
                 result = self._analyze_institution(cursor, name)
             else:
-                # 기관 목록 조회
                 result = self._get_institution_list(cursor, limit)
             
             conn.close()
@@ -39,7 +37,7 @@ class handler(BaseHTTPRequestHandler):
     def _get_institution_list(self, cursor, limit):
         """상위 발주기관 목록"""
         
-          query = """
+        query = """
             SELECT 
                 dminstt_nm,
                 COUNT(*) as bid_count,
@@ -54,14 +52,13 @@ class handler(BaseHTTPRequestHandler):
             WHERE dminstt_nm IS NOT NULL 
                 AND sucsf_bid_amt > 0
                 AND sucsf_bid_rate IS NOT NULL
-                AND dminstt_nm NOT LIKE '%수요기관%'
-                AND dminstt_nm NOT LIKE '%각 %'
-                AND LENGTH(dminstt_nm) > 2
+                AND dminstt_nm NOT LIKE '%%수요기관%%'
+                AND dminstt_nm NOT LIKE '%%각 %%'
+                AND char_length(dminstt_nm) > 2
             GROUP BY dminstt_nm
             ORDER BY bid_count DESC
             LIMIT %s
         """
-
         
         cursor.execute(query, [limit])
         rows = cursor.fetchall()
@@ -87,7 +84,11 @@ class handler(BaseHTTPRequestHandler):
                 COUNT(*) as total_bids,
                 ROUND(AVG(sucsf_bid_rate)::numeric, 2) as overall_avg_rate
             FROM bid_results
-            WHERE dminstt_nm IS NOT NULL AND sucsf_bid_rate IS NOT NULL
+            WHERE dminstt_nm IS NOT NULL 
+                AND sucsf_bid_rate IS NOT NULL
+                AND dminstt_nm NOT LIKE '%%수요기관%%'
+                AND dminstt_nm NOT LIKE '%%각 %%'
+                AND char_length(dminstt_nm) > 2
         """)
         total_stats = cursor.fetchone()
         
