@@ -2,14 +2,14 @@ name: Nightly refresh award_status labels
 
 on:
   schedule:
-    # KST 02:00 = UTC 17:00 (previous day)
+    # KST 02:00 = UTC 17:00
     - cron: "0 17 * * *"
   workflow_dispatch: {}
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Install PostgreSQL client
@@ -17,7 +17,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
-      - name: Run refresh function (auto since + buffer)
+      - name: Run refresh function (auto since, default backfill=6 hours)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
@@ -31,4 +31,4 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
             "SELECT job_name, last_run_at, last_status, last_message
              FROM pps_bid.etl_checkpoint
-             WHERE job_name='refresh_award_status_labels';"
+             WHERE job_name IN ('refresh_award_status_labels');"
