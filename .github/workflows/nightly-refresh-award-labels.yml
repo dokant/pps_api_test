@@ -17,12 +17,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
-      - name: Run refresh function (incremental)
+      - name: Run refresh function (auto since + buffer)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
-            "SELECT * FROM pps_bid.refresh_award_status_labels(now() - interval '2 days');"
+            "SELECT * FROM pps_bid.refresh_award_status_labels_auto(interval '2 hours');"
 
       - name: Show checkpoint
         env:
