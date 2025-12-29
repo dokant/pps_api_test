@@ -24,6 +24,13 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
             "SELECT * FROM pps_bid.refresh_award_status_labels_auto();"
 
+      - name: Refresh daily aggregates (last 2 days)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+            "SELECT * FROM pps_bid.refresh_daily_award_stats((now() AT TIME ZONE 'Asia/Seoul')::date - 2);"
+
       - name: Show checkpoint
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
